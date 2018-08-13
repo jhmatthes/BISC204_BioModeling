@@ -1,0 +1,222 @@
+---
+title: "HIV Dynamics, Part 2"
+output:
+  html_document:
+    theme: cerulean
+    highlight: pygments
+    css: ../lab.css
+---
+
+### 1.  Objectives
+
+- Develop code to solve and simulate systems of differential equations for the McLean-Phillips HIV model.
+- Develop an extension of the basic McLean-Phillips HIV model that includes latent infection (i.e., conditions where the individual is infected, but without symptoms).
+- Implement changes to the McLean-Phillips HIV model to simulate the effects of HIV treatment on long-term dynamics of the within-person system. 
+- Simulate the population-level S-I-A model of HIV transmission. 
+- For both models, investigate the effect of changing parameters that relate to potential therapy/intervention on long-term HIV dynamics.
+
+
+### 2. Introduction
+
+Last week, we learned the nuts and bolts of numerical integration methods like Euler and RK4, which are the algorithms that do the heavy lifting within the **`deSolve`** package that we'll use to solve ordinary differential equations (ODEs). This week, we'll continue using `deSolve` to work on developing the McLean-Phillips HIV model. We'll continue by adding a new process - latent infection (i.e., infection before an individual is symptomatic) - to investigate what impact that has on the dynamics of our system and the interpretation of our results. In the grand finale of our HIV Dynamics lab, we'll develop model code to implement the HIV treatment, a multi-drug regimen that reduces virus levels, to simulate the dynamics of intervention.
+
+### 3. Numerial Integration with `deSolve`: McLean-Phillips HIV Model
+
+It is extremely valuable to know how to write your own functions to numerically integrate problems, but in practice, there are functions within R packages that can help us to do this in a more generalized and efficient way. The numerical integration solvers that we'll use in this class are in the `deSolve` R package:
+
+
+```{r, message=FALSE, warning = FALSE}
+library(deSolve)
+library(tidyverse)
+```
+Using `deSolve` to solve an initial value problem (IVP) requires two steps:
+
+- Definition of the set of change equations (including the representation of parameters) that we're trying to solve by writing a function within R.
+- Solving the set of change equations with the `ode` function (specifying parameters, initial conditions, and the numerical integration technqiue). 
+
+Let's use the `ode` function to solve the system of equations for the McLean-Phillips HIV model presented within the text. To use `deSolve`, we'll first define a function that contains the change equations. The `ode` function expects to get the input for this function in a particular format, with a vector of timepoints and a list of starting states and parameter values. 
+
+```{r}
+# Write function for the change equations in the McLean-Phillips HIV model, with no latency
+HIVNoLatency <- function(t, state, parms){
+  with(as.list(c(state, parameters)), { # need this line to match what the ode function expects
+    
+    # System of change equations
+    dV <- a*E - b*V
+    dR <- c - d*R - e*R*V
+    dE <- e*R*V - f*E
+    
+    # Return the rate of change
+    list(c(dV, dR, dE))
+  })
+}
+
+```
+The second step is to use the `ode` function from the `deSolve` package to solve the above system of equations. To do that, we first need to define a few things: the parameter values, the initial conditions for the state variables, and the vector of time over which we are going to numerically integrate. 
+
+```{r}
+# Specify the parameter values for the change equations
+parameters <- c(a = 100, b = 2, c = 0.272, d = 0.00136, e = 0.00027, f = 0.33)
+
+# Specify the initial values of the state variables
+state <- c(V = 100, R = 200, E = 10)
+
+# Create a vector for time to solve the model (start with 50 days)
+times <- seq(1, 50, by=0.1)
+
+# Solve the ODEs with the ode function
+HIV_NoLI <- ode(y = state, times = times, 
+                func = HIVNoLatency, 
+                parms = parameters)
+
+# The output of the ode function is a matrix, change it to a data frame for pretty plotting
+HIV_NoLI <- as.data.frame(HIV_NoLI)
+HIV_NoLI <- mutate(HIV_NoLI,
+                   total_lymphocytes = 800 + R + E)
+
+# Plot the dynamics of the three state variables
+ggplot(HIV_NoLI) + geom_line(aes(x = time, y = V, col="Virus")) + 
+  geom_line(aes(x = time, y = R, col="Uninfected cells")) + 
+  geom_line(aes(x = time, y = E, col="Infected cells")) +
+  scale_color_manual(values = c("skyblue","royalblue","navy"),
+                     name = "State variable:") +
+  labs(y = "Virus/cell counts in 1 mm3 blood")
+
+# Plot just total lymphocytes and virus count (Fig 1A in Phillips 96 paper)
+ggplot(HIV_NoLI) + 
+  geom_line(aes(x = time, y = V, col="Virus")) + 
+  geom_line(aes(x = time, y = total_lymphocytes, col="Total lymphocytes")) +
+  scale_color_manual(values = c("skyblue","royalblue"),
+                     name = "State variable:") +
+  labs(y = "Virus or Lymphocyte counts in 1 mm3 blood")
+```
+
+1. Consider the graph that this numerical solution produced. How does it illustrate what the Phillips paper (and the scientific community studying HIV) found to be a surprising result?
+
+2. Re-solve the model after changing at least one of the initial values. Does this change the solution? Why or why not?
+
+Although this model reproduces patterns that match the data for early infection HIV dynamics, it is not particularly useful for understanding longer-term dynamics because it does not include latent infection. Let's develop a new model that adds a change equation for latently infected cells. 
+
+When a person becomes infected with HIV, we'll assume that 90% of infected cells become actively infected, and 10% become latently infected. The per-capita "activation rate", the rate at which latently infected cells become actively infected, is 0.036. Also, latently infected cells have the same per-capita death rate as uninfected ones. 
+
+3. Set up a new function for the HIV differential equations with latent infection called `HIVWithLatency`. This is the function that you'll send to `ode` to solve for the system dynamics through time. 
+
+```{r, echo = FALSE}
+HIVWithLatency <- function(t, state, parms){
+  with(as.list(c(state, parameters)), {
+    
+    # System of change equations
+    dV <- a*E - b*V
+    dR <- c - d*R - e*R*V
+    dE <- 0.9*e*R*V - f*E + g*L
+    dL <- 0.1*e*R*V - d*L - g*L
+    
+    # Return the rate of change
+    list(c(dV, dR, dE, dL))
+  })
+}
+```
+
+Let's solve this new model for the dynamics of HIV infection using the same parameters, initial values, and timesteps as before: 
+
+```{r}
+# Specify the parameter values for the change equations
+parameters <- c(a = 100, b = 2, c = 0.272, d = 0.00136, e = 0.00027, f = 0.33, g = 0.036)
+
+# Specify the initial values of the state variables (assume L starts at 0.1E)
+state <- c(V = 100, R = 200, E = 10, L = 1)
+
+# Create a vector for time to solve the model (start with 50 days)
+times <- seq(1, 50, by=0.1)
+
+# Solve the ODEs with the ode function
+HIV_LI <- ode(y = state, times = times, func = HIVWithLatency, parms = parameters)
+
+# The output of the ode function is a matrix, change it to a data frame for pretty plotting
+HIV_LI <- as.data.frame(HIV_LI)
+HIV_LI <- mutate(HIV_LI,
+                   total_lymphocytes = 800 + R + L + E)
+
+# Make a plot to look at the solution
+ggplot(HIV_LI) + geom_line(aes(x = time, y = V, col="Virus")) + 
+  geom_line(aes(x = time, y = R, col="Uninfected cells")) + 
+  geom_line(aes(x = time, y = E, col="Actively infected cells")) +
+  geom_line(aes(x = time, y = L, col="Latently infected cells")) +
+  geom_line(aes(x = time, y = total_lymphocytes, col = "Total lymphocytes")) +
+  scale_color_manual(values = c("skyblue","blue","royalblue","navy","green"),
+                     name = "State variable:")
+
+```
+
+Now let's find a solution for the 10-year dynamics of the HIV model with latent infection using the same parameters and initial conditions as before. Before the discovery of HIV treatment methods, 10 years was approximately the timeline for an HIV-infected patient to develop AIDS. 
+
+```{r}
+# Create a vector for time to solve the model (start with 3650 days)
+times <- seq(1, 3650, by=0.1)
+
+# Solve the ODEs with the ode function
+HIV_10yr <- ode(y = state, times = times, func = HIVWithLatency, parms = parameters)
+
+# The output of the ode function is a matrix, change it to a data frame for pretty plotting
+HIV_10yr <- as.data.frame(HIV_10yr)
+
+# Make a plot to look at the solution
+ggplot(HIV_10yr) + geom_line(aes(x = time, y = V, col="Virus")) + 
+  geom_line(aes(x = time, y = R, col="Uninfected cells")) + 
+  geom_line(aes(x = time, y = E, col="Actively infected cells")) +
+  geom_line(aes(x = time, y = L, col="Latently infected cells")) +
+  scale_color_manual(values = c("skyblue","blue","royalblue","navy"),
+                     name = "State variable:")
+```
+
+We can also examine the dynamics of the cell state variables more closely by adjusting the ggplot y-axis limits (since there are many, many more virus particles than cells):
+
+```{r}
+ggplot(HIV_10yr) + 
+  geom_line(aes(x = time, y = V, col="Virus")) +
+  geom_line(aes(x = time, y = R, col="Uninfected cells")) + 
+  geom_line(aes(x = time, y = E, col="Actively infected cells")) +
+  geom_line(aes(x = time, y = L, col="Latently infected cells")) +
+  ylim(0, 60) + #remove values outside of the 100-900 range on the y-axis
+  scale_color_manual(values = c("skyblue","blue","royalblue","navy"),
+                     name = "State variable:")
+```
+
+### 4. Population-level model for HIV dynamics
+
+The second model that we'll investigate closely in this lab is the Anderson-May population-level HIV model presented within the Modeling Life textbook on pages 40-42. This system is defined by the set of equations:
+
+$S' = b - (m+L)S$
+
+$I' = LS - (m+v)I$
+
+$A' = vI - (m+\alpha)A$
+
+$L = c\beta\frac{I}{S+I}$
+
+For the Lab 2 Report, you'll use these equations to code the function that describes the system of differential equations. Then using the parameter values described in the text, you'll investigate the population dynamics of people who are Susceptible to HIV, Infected with HIV, and have developed AIDS. 
+
+* * * 
+### Lab Report Questions
+
+There was one question from Lab 2A that you should include in your final Lab Report as Question 1. The rest of your Lab 2 Report will work with the two models in this lab - within-person HIV dynamics in the Phillips-McLean model and within-population dynamics in the Anderson-May S-I-A model. 
+
+Lab Report 2 is due by 11am on Thursday, February 15 via Sakai. Submit a Lab 2 Report document with your answers to the following questions, titled "BISC204_Lab2_BANNERID.pdf" with an accompanying R script file called "BISC204_Lab2_BANNERID.R" with the code that you used to produce your answers. In your R script file, include comments that indicate which pieces of code answer which questions in the document file.
+
+- [Lab 2A] Write a function for the RK4 algorithm (called `rk4OurFunction`) that takes the same inputs as the eulerOurFunction function. Use your `rk4OurFunction()` to calculate the solution for $f(x)$ at a step size of 0.01 and compare it graphically to the solution for the Euler algorithm at the same step size. 
+
+- The current treatment for HIV is a multi-drug regimen that can reduce patients' virus levels to the point of undetectibility. These drugs work by making it much harder for viruses to infect cells. The impact of antiretroviral therapy is to reduce the value of the parameter that describes the rate at which the HIV virus infects cells. Which parameter of the within-person Phillips-McLean HIV model with latent infection controls the rate at which the HIV virus infects cells and how do you know this?
+
+- Set up new initial conditions for the numerical solution of the within-person Phillips-McLean HIV model with latent infection with values that correspond to approximately where the 10-year simulation settled. Change the parameter that describes the rate of HIV virus infection of cells as well. Simulate a solution to this new system for an "HIV therapy" parameter value that is two orders of magnitude smaller (move the decimal two places to the left) than the value that we simulated initially. Create plots for the simulation and describe the impact of this parameter on the long-term HIV dynamics for a patient that receives this type of HIV therapy.
+
+- Test the *sensitivity* of the "HIV therapy" parameter of the within-person Phillips-McLean HIV model. Do this by picking two alternate values of this parameter and run your simulation. In cases where you're not sure how sensitive the system is going to be, it's usually best to start with very different parameter values, for example an order of magnitude (one decimal place) bigger or smaller than your initial parameter value. Write which parameter values you tried, and describe whether your conclusions from Question 3 changed with different parameter values. If you'd like, include a graph(s) to highlight how the simulations changed with different parameter values.
+
+- Produce the code needed for a function that represents the within-population S-I-A model of HIV dynamics, and the initial conditions and parameter values at the top of page 42 in the *Modeling Life* book. Run the simulation for these conditions, and produce a graph displaying the results for dynamics of HIV-Susceptible people, HIV-Infected people, and people with AIDS. (Just include the graph as your qnswer in the Lab Report document, but leave the code in your .R file that you'll submit.) 
+
+- Explain the dynamics displayed in the graph from Question 5 in words. 
+
+- In the *Modeling Life* book on page 42, the authors describe how the $\beta$ parameter can reflect population-level intervention to control the spread of HIV, for example by implementing safe-sex practices. Describe why this is the case for the $\beta$ parameter in your own words. Start by thinking about the role that $\beta$ plays in the S-I-A system of equations.
+
+- Reduce the value of the $\beta$ parameter in the population-level S-I-A model to reflect interventions to slow the spread of HIV. Include a graph that shows the results of this simulation with a caption that briefly describes the graph. 
+
+* * * 

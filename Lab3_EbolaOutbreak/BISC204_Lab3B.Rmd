@@ -1,0 +1,171 @@
+---
+title: "Lab 3: The 2014 Ebola Epidemic, Part 2"
+output:
+  html_document:
+    theme: cerulean
+    highlight: pygments
+    css: ../lab.css
+---
+
+### 1.  Objectives
+
+- Summarize statistics from the ebola epidemic with the `tidyverse` functions `group_by()` and `summarize()`.
+- Use the priciples of optimization to find the maximum growth rate in ebola cases and ebola deaths in the three nations.
+- Plot vector fields to investigate ebola dynamics.
+
+### 2. Introduction
+
+This week, we'll build on our work from last class to use the parameters that we fit to the WHO 2014 Ebola Epidemic data to investigate dyanmics in ebola cases and deaths in Guinea, Liberia, and Sierra Leone. First, we'll use the `group_by()` and `summarize()` functions from the `tidyverse` to aggregate and summarize the data, from [R4DS 5.1-5.6](http://r4ds.had.co.nz/transform.html). The next task will use the principles of optimization to find the maximum growth rate of ebola cases and deaths during the epidemic. Our last activity will use vector fields to map the dynamics of the epidemic state space and to plot trajectories onto this state space. 
+
+### 3. Summarizing data from the WHO Ebola Data
+
+The first step for our data analysis is to load the `tidyverse` library. After that, you can read the WHO ebola data with the `read_csv()` function. 
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(lubridate)
+
+# Load data into R 
+ebola_raw <- read_csv("data/ebola.csv")
+
+# Run data processing workflow from last class to format date & tidy the data
+ebola_alltidy <- ebola_raw %>%
+  mutate(date = mdy(`WHO report date`), `WHO report date` = NULL) %>%
+  gather(nation, "count", `Total Cases, Guinea`:`Total Deaths, Sierra Leone`) %>%
+  separate(nation, c("type","nation"), ", ") %>%
+  spread(type, count) %>%
+  mutate(cases = `Total Cases`, deaths = `Total Deaths`,
+         `Total Cases` = NULL, `Total Deaths` = NULL,
+         monitor_days = as.numeric(date) - min(as.numeric(date)) + 1) 
+
+# Look at time series of total ebola cases in all countries
+ggplot(ebola_alltidy) + 
+  geom_line(mapping = aes(x = date, y = cases, color = nation))
+
+```
+
+In your Pre-Lab 3B, you learned a powerful set of tools for subsetting and summarizing data frames. These tools are most helpful for data where you have many measurements within a grouping variable, and you'd like to pull out a summary value or statistic for each group. 
+
+The first function for summarizing data is `group_by()`, which defines the grouping variables for analysis. The second follow-up function is `summarize()`, which says how to summarize the data and which columns to include in the final data table. Within `summarize()` the word to the left of the equals sign is the new column name in the summary table, and the code to the right of the equals sign is how to summarize the data within each group that was defined by `group_by()`. 
+
+1. First use `group_by()` to define the column(s) that would group the `ebola_alltidy` data frame by nation, and then use `summarize()` to produce a new summary data frame with the maximum number of cases and deaths by nation. 
+
+**CHALLENGE 1:** Based on your summary table, use `mutate()` to find the mortality rate during the 2014 Ebola Epidemic within each of the three nations. 
+
+**CHALLENGE 2:** Use `tidyverse` commands to sort the `ebola_alltidy` data frame by nation and add a column to the `ebola_alltidy` data frame showing the rate of change in ebola cases from one day to the next using the `diff()` function. Then, find the maximum daily increase in the number of cases with this new column. Hint: When you add the new "rate of change column", you'll have to add a zero to the start of the vector that `diff()` returns in order to make the row number the same as the data frame.  
+
+### 4. Using optimization to calculate the maximum growth rate in ebola cases & deaths
+
+Let's first make sure that we're all on the same page with the output from the models for cases and deaths from the three nations. 
+
+2. Check your table of parameters for r, K, and N0 for cases and deaths within each of the three nations with your neighbor. 
+
+```{r}
+# Fit logistic model to nation Total Cases & Deaths: 
+# cases / deaths = K*N0 / (N0 + (K-N0) * exp(-r*t))
+SL_logistic_c <- nls(cases ~ 
+                    (K*N0) / (N0 + (K - N0)*exp(-r*monitor_days)),
+            start = list(N0 = 10, r = 0.02, K = 14000),
+            data = filter(ebola_alltidy, nation=="Sierra Leone"))
+
+SL_logistic_d <- nls(deaths ~ 
+                    (K*N0) / (N0 + (K - N0)*exp(-r*monitor_days)),
+            start = list(N0 = 10, r = 0.02, K = 14000),
+            data = filter(ebola_alltidy, nation=="Sierra Leone"))
+
+# Examine stats summary of the logistic fit
+SL_cases <- signif(coef(SL_logistic_c), digits = 3)
+SL_deaths <- signif(coef(SL_logistic_d), digits = 3)
+
+#Guinea
+GN_logistic_c <- nls(cases ~ 
+                    (K*N0) / (N0 + (K - N0)*exp(-r*monitor_days)),
+            start = list(N0 = 10, r = 0.02, K = 14000),
+            data = filter(ebola_alltidy, nation=="Guinea"))
+
+GN_logistic_d <- nls(deaths ~ 
+                    (K*N0) / (N0 + (K - N0)*exp(-r*monitor_days)),
+            start = list(N0 = 10, r = 0.02, K = 14000),
+            data = filter(ebola_alltidy, nation=="Guinea"))
+
+# Examine stats summary of the logistic fit
+GN_cases <- signif(coef(GN_logistic_c), digits = 3)
+GN_deaths <- signif(coef(GN_logistic_d), digits = 3)
+
+#Liberia
+LB_logistic_c <- nls(cases ~ 
+                    (K*N0) / (N0 + (K - N0)*exp(-r*monitor_days)),
+            start = list(N0 = 10, r = 0.02, K = 14000),
+            data = filter(ebola_alltidy, nation=="Liberia"))
+
+LB_logistic_d <- nls(deaths ~ 
+                    (K*N0) / (N0 + (K - N0)*exp(-r*monitor_days)),
+            start = list(N0 = 10, r = 0.02, K = 14000),
+            data = filter(ebola_alltidy, nation=="Liberia"))
+
+# Examine stats summary of the logistic fit
+LB_cases <- signif(coef(LB_logistic_c), digits = 3)
+LB_deaths <- signif(coef(LB_logistic_d), digits = 3)
+
+# Make data frame with ebola parameters
+ebola_params <- bind_rows(SL_cases, SL_deaths, GN_cases, GN_deaths, LB_cases, LB_deaths) %>%
+  mutate(nation = c(rep("Sierra Leone",2), rep("Guinea",2), rep("Liberia",2)),
+         type = rep(c("Cases","Deaths"),3))
+
+```
+
+An important metric for an epidemic is to identify the maximum growth rate for cases and deaths and the time at which it happened. On Monday, we developed an example that used the logistic equation to find a maximum rate of growth.
+
+3. Use the principle of optimization with your best-fit parameter values for each nation and cases and deaths to find the maximum growth rate in cases and deaths for each nation.
+
+
+### 5. Visualizing a vector field and trajectories
+
+Our last task for this lab is to use the parameters we found for r, K, and N0 to visualize a vector field for the logistic growth differential equations that describe the growth in cases and deaths. To do this, we'll use the `phaseR` package, which extends `deSolve` (which we used in Lab 2) to plot the vector field and trajectories. 
+
+```{r}
+library(phaseR, deSolve)
+
+# Define the logistic differential equation for the flowField function
+logistic <- function(t, y, parameters){
+  r <- parameters[1]
+  K <- parameters[2]
+  dy <- r*y*(1 - y/K)
+  list(dy)
+}
+
+# Fitted parameters: you can edit these to be a number that you pull
+# from your own table that you developed at the end of Lab 3A
+N0_fit <- coef(SL_logistic_c)[1]
+r_fit  <- coef(SL_logistic_c)[2]
+K_fit  <- coef(SL_logistic_c)[3]
+
+# Plot the vector field for the fitted logistic equation 
+logistic_flowField <- flowField(logistic, x.lim = c(0, 700), y.lim = c(0, 15000),
+              parameters = c(r_fit, K_fit), points = 10,
+              system = "one.dim", add = FALSE, xlab = "time", ylab = "Total Cases")
+
+# On the vector field, plot the trajectory starting from the N0_fit point 
+logistic_trajectory <- trajectory(logistic, y0 = c(N0_fit), t.end = 700,
+               parameters = c(r_fit, K_fit), system = "one.dim")
+
+```
+
+4. Describe how the vector field "directs" the path of the trajectory. What do the arrows on the vector field represent? What does the trajectory represent?
+
+* * * 
+### Lab Report 3 
+
+- Using the `nls()` function, fit the parameters for the whole epidemic logistic growth model for total ebola cases within each of the three nations. Create a table that organizes the values for the parameters $r$, $N_0$, and $K$ for each nation from the fit to the logistic growth equation.
+
+- Conduct a regional-scale analysis by creating a data frame that adds together the total cases and total deaths across the three nations (just include in code, not document). Create a single ggplot with the total cases and total deaths in the region through time (date on the x-axis). Include this graph in your lab report doccument.  
+
+- Using nonlinear least-squares, fit the equation for logistic growth to the aggregated regional data. Report the values for $r$, $N_0$, and $K$ from this regional analysis along with the standard error from the nls summary, and describe what the parameters mean in terms of biological proceses. 
+
+- Create a ggplot with the data showing the total cases across the region and the fitted nonlinear least-squares logistic growth model for the total cases. 
+
+- From the regional perspective, use optimization theory to calculate the maximum growth rate in the numbers of ebola cases and deaths. Use the standard error from the nls summary output for the $r$ and $K$ parameters to calculate approximate error bounds by re-calculating the maximum growth rate with $r= r - {SE}_r$ and $K = K - {SE}_K$ and $r = r + {SE}_r$ and $K = K + {SE}_K$.
+
+* * * 
+
+

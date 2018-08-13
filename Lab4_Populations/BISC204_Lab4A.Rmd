@@ -1,0 +1,261 @@
+---
+title: "Lab 4: Population Dynamics, Part 1"
+output:
+  html_document:
+    theme: cerulean
+    highlight: pygments
+    css: ../lab.css
+---
+
+### 1.  Objectives
+
+- Use R to find and visualize equilibria, nullclines, phase portraits, and bifurcations.
+
+- Work the examples from the text to understand their analytical underpinnings and their graphical interpretation.  
+
+- Use the spruce budworm model to consider how variation in a parameter can lead to new qualitative behavior. 
+
+
+And foreshadowing Objectives for next week:
+
+- Use parameters fit from the WHO data to simulate the dynamics of the 2014 Ebola Epidemic in systems of differential equations.
+- Use vector fields to understand the state space for ebola dynamics.
+
+### 2. Introduction
+
+This week, we'll focus on using tools within R to find and visualize equilibria, null clines, phase portraits, and bifurcations. Assessing these aspects of dynamical systems can provide important insight into behavior. We'll work some of the examples from the text with R code in order to develop a graphic analysis for these systems both quantitatively and qualitatively. 
+
+The last part of the lab focuses on the spruce budworm model, which is an excellent example of a saddle node bifurcation (where a gradual change in a parameter results in the sudden appearance (or disappearance) of a new pair of equilibria). 
+
+
+## 2. Equilibria & stability in 2-D systems
+
+In class, we've plotted nullclines and vector fields, and have used these graphical techniques to assess the location and class (stable, unstable, saddle, etc.) of equilibria - now we are going to learn to do this within R. We'll start by using the deer and moose competition example from classs (from section 3.4 within Modeling Life) and the sheep and rabbit example that we did as a class exercise.
+
+Both examples that we've worked with in class are versions of the general form for the Lotka-Volterra competition population model:
+
+$X'_1 = r_1X_1 - \alpha_{12}X_1X_2 - \alpha_{11}X_1^2$
+$X'_2 = r_2X_2 - \alpha_{21}X_1X_2 - \alpha_{22}X_1^2$
+
+
+To first apply this model to the example from class (and the text) where deer and moose compete for food, we'll substitute the following parameter values where deer (D) are $X_1$ and moose (M) are $X_2$ into the above equations:
+
+Parameter | Value
+- | -
+$r_1$ | 3
+$r_2$ | 2
+$\alpha_{12}$ | 1
+$\alpha_{21}$ | 0.5
+$\alpha_{11}$ | 1
+$\alpha_{22}$ | 1
+
+We'll start by writing a general function for the Lotka-Volterra competition model, so that we can plot the vector field of this system of equations with the parameter values given above (and eventually with the rabbit-sheep example too).
+
+```{r, message = FALSE, warning=FALSE}
+library(deSolve)
+library(rootSolve)
+library(phaseR)
+library(tidyverse)
+
+# General function for Lotka-Volterra competition
+LotVolt_comp <- function(t, y, parameters){
+  
+  # Define the two state variables from the input 'y'
+  X1 <- y[1]
+  X2 <- y[2]
+  
+  # Define the parameters from the input 'parameters'
+  r1 <- parameters[1]
+  r2 <- parameters[2]
+  a12 <- parameters[3]
+  a21 <- parameters[4]
+  a11 <- parameters[5]
+  a22 <- parameters[6]
+
+  # Define the change equations dy to be solved 
+  # for the input 'y' variables 
+  dy <- numeric(2)
+  dy[1] <- r1*X1 - a12*X1*X2 - a11*X1^2
+  dy[2] <- r2*X2 - a21*X2*X1 - a22*X2^2
+  list(dy)
+}
+```
+
+Now that the function is set up, we can use the parameters from the text for the Deer-Moose example:
+
+```{r}
+# Same parameters from the book Deer-Moose equations 
+DM_params <- c(3, 2, 1, 0.5, 1, 1) # r1, r2, a12, a21, a11, a22 
+
+# Plot the vector field for the LotVolt Deer-Moose competition equations 
+LotVolt.flowField <- flowField(LotVolt_comp, 
+                                x.lim = c(0, 5), y.lim = c(0, 5),
+                                parameters = DM_params, 
+                                points = 10, system = "two.dim", 
+                                add = FALSE, xlab = "Deer population", 
+                                ylab = "Moose population")
+
+# Plot the nullclines on the vector field
+LotVolt.nullclines <- nullclines(LotVolt_comp, 
+                                 x.lim = c(-1, 5),  y.lim = c(-1, 5),
+                                 parameters = DM_params, points = 500,
+                                 system = "two.dim", add=TRUE)
+```
+
+If we look back at the example that we worked in class, we see that there are four equilibria for this system:
+
+$(D^*,M^*) = (0,0)$ (trivial equilibrium)
+
+$(D^*,M^*) = (0, 2)$ 
+
+$(D^*,M^*) = (3, 0)$ 
+
+$(D^*,M^*) = (2, 1)$ 
+
+We can also drop some trajectories on the nullcline plot to visualize what happens with various D, M starting points with this system of equations: 
+
+```{r}
+# Plot the vector field for the LotVolt Deer-Moose competition equations 
+LotVolt.flowField <- flowField(LotVolt_comp, 
+                                x.lim = c(0, 5), y.lim = c(0, 5),
+                                parameters = DM_params, 
+                                points = 10, system = "two.dim", 
+                                add = FALSE, xlab = "Deer population", 
+                                ylab = "Moose population")
+
+# Plot the nullclines on the vector field
+LotVolt.nullclines <- nullclines(LotVolt_comp, 
+                                 x.lim = c(-1, 5),  y.lim = c(-1, 5),
+                                 parameters = DM_params, points = 500,
+                                 system = "two.dim", add=TRUE)
+
+# Set up matrix of initial D, M points to drop trajectories
+y0 <- matrix(c(1, 0.5, 0.5, 2, 2, 4, 3, 0.25), ncol = 2, nrow = 4, byrow = TRUE)
+
+# Drop some trajectories to see what happens
+LotVolt.traj <- trajectory(LotVolt_comp, 
+                                 y0 = y0, t.end = 10,
+                                 parameters = DM_params, 
+                                 system = "two.dim")
+```
+
+In dropping these trajectories, I intentionally chose four starting points that were in each of the four separate sectors of the plot where the $D' = 0$ and $M' = 0$ nullclines cross at the equilibrium point (2, 1). By examining these four trajectories, we can graphically assess the stability of the (2, 1) equilibrium. Since we see that trajectories from all four sectors converge at (2, 1), so (2, 1) is a stable equilibrium for these change equations with this set of parameters.
+
+1. Develop code to plot the vector field and nullclines for the rabbit-sheep competition model, which has the same form of the LotVolt_comp model, but with parameters:
+
+Parameter | Value
+--------- | ---------
+$r_1$       | 24
+$r_2$       | 15
+$\alpha_{12}$  | 3
+$\alpha_{21}$  | 3
+$\alpha_{11}$  | 2
+$\alpha_{22}$  | 1
+
+2. Like we did by hand in class, use the method of dropping trajectories within the nullcline quadrants to characterize the stability of the equilirbia.
+
+
+## 5. Bifurcations
+
+As we discussed in class, bifurcations are a particulalry interesting systems phenomenon that can occur when variation in parameter values produce different numbers of equilibria for a change equation. In this section, we are going to evalute the impact that varying $r$ (the per-capita growth rate) and varying $K$ (the carrying capacity) have on the population of the spruce budworm, a forest insect. 
+
+As developed in the text, the change equation for this example is: 
+
+$N' = rN(1 - N/K) - N^2/(1 + N^2)$ 
+
+where $N$ is the population of spruce budworm, the positive term in the change equation represents logistic growth, and the second term represents predation. 
+
+```{r}
+# Set parameter values and vector of population sizes (N) 
+r <- 0.1 
+K <- 150
+N <- seq(0, 200, by = 0.1)
+
+# Use parameter values and N values to calculate growth rate and predation rate
+budworm_growth <- r*(1 - N/K)
+budworm_predation <- N/(1 + N^2)
+
+# Put together everything in a data frame
+budworm <- data.frame(N, budworm_growth, budworm_predation)
+
+# Plot the lines for budworm growth and predation
+ggplot(budworm) +
+  geom_line(aes(x = N, y = budworm_growth, color = "growth")) +
+  geom_line(aes(x = N, y = budworm_predation, color = "predation"))
+
+```
+
+3. At how many points do the growth and predation lines intersect? What does it mean where the lines intersect?
+4. Increase $r$ to 0.6 and recreate the growth-predation graph: how would you describe these dynamics?
+5. Set $r$ back to 0.1 and decrease $K$ from 150 to 25 - how do the dynamics change?
+
+We can find the equilibria for a single change equation in a one-variable system by setting the derivative equal to zero and solving for all possible values of $x$ that satisfy $f'(x) = 0$. Do to this in R, we can use the `uniroot.all()` function from the `rootSolve` package, which will solve the roots (where $f'(x) = 0$) for the change equation that we're interested in. 
+
+To use `uniroot.all()`, we need to define an interval over which to look for the roots. In this example, we'll search for the roots over the domain (-1, 20) becuase we know that $N$ shouldn't be less than zero (it's a population) and the population should never exceed K (the carrying capacity). In practice, you might end up working with some equations where it is difficult to discern the domain for the roots. In this case, pay attention to how many roots you expect and how many you get, and if you don't get all the roots that you expect, increase the size of the search interval. 
+
+```{r}
+# Write budworm differential equation function
+budworm_change <- function(N, r=0.1, K=150){
+  dNdt <- r*N*(1 - N/K) - N^2/(1 + N^2)
+}
+
+# Use uniroot.all() to find equilibria
+budworm_equilibria <- uniroot.all(budworm_change, interval = c(-1, 200))
+
+# Look at equilibria values
+budworm_equilibria
+
+```
+
+6. Compare the solution that was returned by `uniroot.all()` to what you see on the graph where we plotted the lines for growth and predation. 
+
+## 5. Discovering bifurcations by looping over parameter sets
+
+Our last step in this lab is to set up iterative loops in R to try out different parameter values and see what solution we get for the equilibria and qualitative dynamics of the spruce budworm system. Remember from Lab 2 (where set up loops to do the Euler and RK4 algorithms) that loops are a way of stepping through different values one at a time, and aggregating results calculated with those values. Here, we're going to start by stepping through different values of the parameter $r$ to see how the dyanmics of the spruce budworm system change. 
+
+The first thing that we have to do is set up a vector of values of $r$ to try, an object to hold the output that we get for each value of $r$ from the `uniroot.all()` solver, and a loop to organize how R re-calculates the roots for different $r$ values.
+
+```{r}
+# Vector of r parameter values to try 
+r_params <- seq(0.0, 0.75, by = 0.05)
+
+# Set up an object to hold the roots of the budworm change equation
+# once we solve them in the 'for' loop
+budworm_eq_r <- matrix(NA, nrow=length(r_params), ncol=2)
+
+# Use a `for` loop to loop over each r value within rvals, find the
+# roots (dNdt = 0), and store them in budworm_eq_r
+for(i in 2:length(r_params)){  #start indexing at 2 to skip r = 0
+  
+  # Write function pasting in different parameter combos
+  budworm_growth <- function(N, r = r_params[i], K = 150){
+    dNdt <- r*N*(1 - N/K) - N^2/(1 + N^2)
+  }
+  
+  # Find roots (equilibria) for the budworm_growth with this r value
+  roots_tmp <- uniroot.all(budworm_growth, interval = c(-1, 1000))
+  
+  # Store the roots in the budworm_eq_r matrix
+  budworm_eq_r[i, 1:length(roots_tmp)] <- roots_tmp
+}
+
+# Attach the values of r in a new data frame so that the roots are easier to interpret
+budworm_roots <- data.frame(r_params, EQ1 = budworm_eq_r[,1],  EQ2 = budworm_eq_r[,2])
+
+```
+
+7. Make a plot that shows how the first root (EQ1) changes with different values of $r$. Make a second plot that shows how the second root (EQ2) changes with $r$. Translate what you see in these graphs to how the dynamics of the system are changing. 
+
+
+* * * 
+### Lab Report 4 Questions (due with the set from 4B)
+
+The first Lab Report 4 question will extend the code that we wrote to try different values of $r$ to trying different values of $K$ within the spruce budworm example:
+
+- Create code to find the equilibria for different parameter values of $K$ ranging from 150 to 2000, where $r$ is fixed at 0.1. Make a plot to show how the equilibria values change with different values of $K$. 
+
+***CHALLENGE***: Make code to loop through $r$ values and $K$ values simultaneously. Create output that plots how the system changes in response to changes in both $r$ and $K$, together.
+
+* * * 
+
+

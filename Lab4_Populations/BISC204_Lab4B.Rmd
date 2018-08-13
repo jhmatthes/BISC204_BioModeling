@@ -1,0 +1,167 @@
+---
+title: "Lab 4: Oscillatory p53 dynamics"
+output:
+  html_document:
+    theme: cerulean
+    highlight: pygments
+    css: ../lab.css
+---
+
+### 1.  Objectives
+
+- Use functions within the `deSolve` package to solve the system of differential delay equations that describe the oscillatory dynamics of the p53 system. 
+
+- Characterize the time series created by the p53 system to statistically describe the oscillatory dynamics that are produced by solving the system of equations.
+
+
+### 2. Introduction
+
+This week we'll develop code to analyze the system describing oscillations between DNA damage signals, p53, and Mdm2 to examine characteristics of this oscillating biological system. To implement the model, we'll learn to set up a system of delay differential equations using the `deSolve` package. 
+
+The system of equations that we'll use to describe the dynamics of p53 are:
+
+$X' = \beta_x  \frac{S^n}{(1 + S^n)} - \alpha_{xy}XY$
+
+$Y' = \beta_yX(t-\tau) - \alpha_yY$
+
+$S' = \beta_S - \alpha_sYS$
+
+The change in $X$ (p53) is controlled by the production rate $\beta_x$ scaled by a nonlinear feedback from $S$ (DNA damage signal). High levels of $S$ increase the growth rate of p53, whereas lower levels of $S$ do not. $X$ also decreases by an interaction with $Y$ (Mdm2 molecules). $Y$ changes at a growth rate that is dependent on the level of $X$ at a time lag, $\tau$. $Y$ decays at a rate that is proportional to the amount of $Y$ present. $S$ is produced at a constant rate $\beta$ and is removed through interaction between $Y$ and $S$. 
+
+### 3. Solving the delay differential equation system 
+
+Whenever we are using `deSolve` to find a numerical integration solution, the first step that we need to take is to write our system of change equations as a function that we can send to the solver. In this case, we'll set up a function called `p53.model` that captures the three differential equations written above with their seven associated parameter values. Notice that this function has one different component: an `xlag` variable that is calculated as a value of the state variable X at t - $\tau$.  
+
+```{r}
+# load library
+library(deSolve)
+
+# Function for p53-Mdm2-signal delay differential equations
+p53_model <- function(t, y, p, tau, tinit, xinit){
+  
+  # If t - tau is less than the time of the first timepoint, 
+  # use initial x value, otherwise use the x value at some lag 
+  if((t - tau) <= tinit){
+    xlag <- xinit
+  } else {
+    xlag <- lagvalue(t - tau)[1]
+  }
+  
+  # Write state variables more intuitively
+  X <- y[1] ; Y <- y[2] ; S <- y[3]
+  
+  # Expecting 7 parameter values: 3 betas, 3 alphas, and n
+  beta_x <- p[1]   ; beta_y <- p[2]  ; beta_s <- p[3]
+  alpha_xy <- p[4] ; alpha_y <- p[5] ; alpha_s <- p[6]
+  n <- p[7]
+  
+  # Differential Equations
+  dX <- beta_x * S^n / (1 + S^n) - alpha_xy * X * Y
+  dY <- beta_y * xlag - alpha_y * Y
+  dS <- beta_s - alpha_s * Y * S
+  
+  return(list(c(dX, dY, dS)))
+}
+
+```
+
+The next steps are to set the model parameters, initial conditions, and vector of timepoints for the simulation. Once those are set, we can run the `dede` function (the delay differential equation solver) to numerically ingetgrate the change equations and solve for the time series of $X$, $Y$, and $S$. 
+
+```{r}
+# Set parameter values
+params <- c(beta_x = 0.9, beta_y = 1.2, beta_s = 4.0, 
+            alpha_xy = 1.4, alpha_y = 0.8, alpha_s = 2.7, 
+            n = 4)
+
+# Set initial conditions and time vectors
+init <- c(X = 0, Y = 0.9, S = 0)
+times <- seq(1, 50, by=0.1)
+
+# Solve system of delay differential equations
+out <- dede(y = init, times = times, func = p53_model, 
+            p = params, tau = 5.0, tinit = min(times), xinit=init["X"]) 
+
+# Change the output from a matrix to a dataframe for easier plotting
+out <- data.frame(out)
+
+```
+
+The last step of understanding our simualtion is to create some plots to visualize the output from our numerical intergration solution: 
+
+```{r}
+library(tidyverse)
+
+# Plot the time series dynamics of X, Y, and S
+ggplot(out) +
+  geom_line(aes(x = time, y = X, color = "X")) +
+  geom_line(aes(x = time, y = Y, color = "Y")) +
+  geom_line(aes(x = time, y = S, color = "S"))
+  
+```
+
+We can also examine the dynamics by choosing the variables two at a time and plotting them within state space: 
+
+```{r}
+# X dynamics
+ggplot(out) +
+  geom_path(aes(x = X, y = Y, color = "X-Y")) +
+  geom_path(aes(x = X, y = S, color = "X-S")) +
+  labs(x = "X state", y = "Y or S state", color = "variable pair")
+
+# S dynamics
+ggplot(out) +
+  geom_path(aes(x = S, y = X, color = "S-X")) +
+  geom_path(aes(x = S, y = Y, color = "S-Y")) +
+  labs(x = "S state", y = "X or Y state", color = "variable pair")
+
+```
+
+
+### 4. Looping over parameters to test for bifurcations
+
+We can also write a script to loop through several potential values for variables within the system of equations. This can be a helpful tool for examining when dynamics change their qualitative dynamics. For example, we can vary the value of the $\beta_x$ parameter from 0.1 to 2.0 and examine the sensitivity of the solutions to this parameter. In practice, this is the most uncertain parameter within this system of equations. 
+
+```{r}
+# Find numerical solutions over the beta.x range from 0.1 to 2.0 
+beta_x_seq <- seq(0.1, 2, by = 0.1)
+
+# Loop over beta.x values, solve the system, and make a plot at each iteration
+for(b in 1:length(beta_x_seq)){
+  params <- c(beta_x = beta_x_seq[b], beta_y = 1.2, beta_s = 0.9, 
+              alpha_xy = 1.4, alpha_y = 0.8, alpha_s = 2.7, 
+              n = 4)
+  
+  # Solve system of delay differential equations
+  out <- dede(y = init, times = times, func = p53_model, 
+              p = params, tau = 0.9, tinit = min(times), xinit=init["X"]) 
+  
+  out <- data.frame(out)
+
+  # Plot the time series dynamics of X, Y, and S
+  g <- ggplot(out) +
+    geom_line(aes(x = time, y = X, color = "X")) +
+    geom_line(aes(x = time, y = Y, color = "Y")) +
+    geom_line(aes(x = time, y = S, color = "S")) +
+    labs(title = paste0("Dynamics with beta_x = ",beta_x_seq[b]))
+  
+  print(g)
+}
+```
+
+* * * 
+### Lab Report 4 Questions 
+- Solve the p53 system again for the same default settings, but change the parameter $n$ from 4 to 2. Plot the solution results both as a time series plot and as 2-D state variable plots. 
+
+- Describe, generally, what changing $n$ from 4 to 2 does to the long-term system dynamics.
+
+- Solve the p53 system again for the same default settings, but change $n$ from 4 to 10. Plot the solution results both as a time series plot and as a series of 2-D state variable plots. 
+
+- Describe, generally, what changing $n$ from 4 to 10 does to the long-term system dynamics.
+
+- Describe what happens to the amplitude, wavelength, and dynamics of the solution for the delay differntial equations system as $\beta_x$ varies from 0.1 to 2.0. Did you observe evidence of a bifurcation? If so, at what parameter value, and how do you know? 
+
+- Set up another `for` loop that will vary one other parameter across a large range (similar to the range of the beta_x parameter). Describe the biological meaning of the parameter that you chose, and how varying this parameter impacted the result of the simulations. 
+
+* * * 
+
+

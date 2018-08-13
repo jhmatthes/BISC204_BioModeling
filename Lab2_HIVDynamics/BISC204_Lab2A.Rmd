@@ -1,0 +1,252 @@
+---
+title: "Lab 2: HIV Dynamics, Part 1"
+output:
+  html_document:
+    theme: cerulean
+    highlight: pygments
+    css: ../lab.css
+---
+
+### 1.  Objectives
+
+- Understand numerical integration theoretically and programmed as functions in R.
+- Write `for` loops in R that iterate the Euler and 4th Order Runga-Kutte (RK4) numerical integration algorithms.
+- Write `functions` in R to compare the solutions for the Euler and RK4 algorithms for a problem where the real answer is known.
+- Diagram and identify equations for the McLean-Phillips HIV model.
+
+And foreshadowing Objectives for next week:
+
+- Develop code to solve and simulate systems of differential equations for the McLean-Phillips HIV model.
+- Develop an extension of the basic McLean-Phillips HIV model that includes latent infection (i.e., conditions where the individual is infected, but without symptoms).
+- Implement changes to the McLean-Phillips HIV model to simulate the effects of HIV treatment on long-term dynamics of the within-host system. 
+
+### 2. Introduction
+
+This week, we'll learn to program loops and functions within R to numerically integrate systems of equations that we can't solve analytically. In class, we'll learn that for most of the equations that we're interested in, we can't find the exact answer by integrating the change equations, because the change equations are often unsolve-able. Instead, we have to rely on integration by numeric methods. Computational methods are often essential for biological modeling since numerical integration is much, much faster if solved through efficient algorithms. 
+
+We'll start by learning how to program the Euler method within R. This will require us to learn how to use **`for` loops** to save us time and space when we're applying the same function to different values over, and over, and over again. We'll do this to take so many tiny Euler steps! Then using the `for` loop that we make, we'll define our own **`function`** for the Euler method to numerically integrate an example change equation. Then, we'll apply these concepts to write a loop within a function that implements the 4th Order Runge Kutta (RK4) numerical integration technique. We'll compare the accuracy and computational speed of the Euler and RK4 techniques when numerically integrating the same example difference equation (that we actually know the answer to). 
+
+
+
+### 3. Euler? ... Euler? ... Anyone? Euler?
+
+As we learned in class, the Euler method is a technique for numerically integrating (calculating an approximation of) an unknown function based on that function's change equation. The bottom-line of the Euler method is that if we are at some state $X[0]$, we can calculate the next point as one tiny timestep $\Delta_t$ times the change equation $X'$, where $X[0]$ is placed into the change equation as $X$. 
+
+For this example, we'll work through the Euler method for solving the equation: $f(X) = e^{-6X}$, where $X'= -6X$. In practice, oftentimes we might not know know an equation $f(X)$ and will only have $X'$. But for this example we'll work with a known function so that we can see how well the numerical integration methods do at solving the equations compared to the analytical answer (as opposed to the computational answer, which is the numerical integration result).
+
+When we're setting up the Euler method, the first thing that we should do is define our start time, end time, and the step size. 
+
+```{r}
+# Set the start/end times & the Euler step size (h)
+t_start <- 0 # Starting timepoint
+t_end <- 1   # Ending timepoint
+step_size <- 0.2 # Euler step size
+
+# Make a vector of timepoints from start/end times using seq() function
+timepoints <- seq(t_start, t_end, by = step_size) 
+```
+
+The next step is to make an empty vector that is the same length of our timepoints vector, to hold the answers for $X$ that we calculate with the Euler method. Once this vector exists as an object within R, we can assign the initial condition (the first value in the vector) to be 1. This is an important part of numerical integration: we have to give it initial conditions to tell it to start somehwere for numerically integrating an unknown function.
+
+```{r}
+# Make an empty vector called X to hold the Euler numeric integration answers 
+# for the approximation of f(X) at each timestep 
+X <- rep(NA, length(timepoints)) 
+
+# Assign the first value (initial condition) of X to be 1
+X[1] <- 1 
+
+```
+
+In the above code, we used square brackets to re-assign the value NA to a value of one. `X[1]` says to do something with the first element of X. Similarly, you can type `X[5]` to get just the fifth element of `X` and `X[3:5]` to get a vector with just the third through fifth elements. 
+
+1. What does the `seq()` function do? What about the `rep()` function? (Hint: type ?seq in the Console to pull up the R help window for this function.)
+
+Now that we've set up the time vector and the X vector to solve, the next step of the Euler method is to step through each of the timepoints h, and calculate the X at that timepoint based on the X calculated at the previous timestep. In order to do this, we're going to write a `for` loop, where we step through each value of X (and each timepoint) one at a time. 
+
+```{r}
+# Loop over all the timepoints and calculate the next X value each time
+# for the change equation: X' = -6X
+for(t in 1:(length(timepoints) - 1)) {
+  
+  # Calculate each "next" X value by adding h times X' (plugging in the "current" X) 
+  # to the current value of X
+  X[t+1] <- X[t] + step_size*(-6*X[t])
+
+}
+
+X_solution <- data.frame(timepoints, X, method = "Euler, step size = 0.2")
+```
+
+After the loop, we started to build a data frame called `X_solution`. The data frame has three columns - the timepoints, the solution for X, and a column that says what numerical integration method we used. We're keeping track of the method along the way as we'll eventually try other things and want to compare how different algorithms and timesteps impact the solutions for X. 
+
+Once we numerically integrate X by the above `for` loop with the Euler method, we can plot it against t to see what the numerical solution looks like:
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+
+# Quick plot of numerically integrated equation
+ggplot(data = X_solution) + geom_line(mapping = aes(x = timepoints, y = X))
+```
+
+In this plot, we can see the segments that connect the solutions at each of the timepoints at 0.2 intervals on the bottom axis. This is our approximate solution for the equation $f(X)$, for which we only have the change equation $X'$.
+
+We might be interested in calculating the Euler solution at a smaller timestep, so we could apply the same process with `step_size = 0.01`, rather than `step_size = 0.2` and check if our estimate improves. We could repeat all the same steps that we used above for `step_size = 0.2` as:
+
+```{r}
+t_start <- 0 #Starting timepoint
+t_end <- 1   #Ending timepoint
+step_size <- 0.01    #Euler step size
+
+# Make a vector of timepoints from time 0 to time 1
+timepoints_smallsteps <- seq(t_start, t_end, by = step_size )  
+
+# Make an empty vector called Xnew to hold the Euler numeric integration answers 
+# from our 'for' loop
+X_smallsteps <- rep(NA, length(timepoints_smallsteps)) 
+
+# Assign the first value (initial condition) of Xnew to be 1
+X_smallsteps[1] <- 1 
+
+```
+
+3. Write the `for` loop that will calculate the Euler solution for this new set of timepoints (you can copy and paste the code from above, replacing `timepoints` and `X` where needed). Make a plot of this new solution with `step_size = 0.01`, and compare it to the solution where `step_size = 0.2`. 
+
+### 4. A Function for the Euler method
+
+Whenever you are coding and have the instinct to copy and paste the same piece of code over and over (like we did for calculating the Euler solution with a smaller timestep), hold the phone and think carefully about turning that process into a `function` to make things more efficient. Making functions for things that you want to do over and over is one of the most powerful aspects of computation. 
+
+We've already used several built-in functions in R, for example the `seq()` and `rep()` functions we explored at the beginning of this lab. But you can also create your own unique functions! Creating your own function within R requires two steps: first, defining the function, and secondly, applying the function for the specific cases that you want to explore. To write our Euler method as a function, we'll put the pieces that we've been copying and pasting *within* the function so that we can run it with any step size, initial X value, and starting/ending timepoints:
+
+```{r}
+# Write a unique function for calculating the Euler solution to the change equation, X' = -6X
+eulerOurFunction <- function(step_size, X_initial, time_start, time_end) {
+  
+  # Make a vector of timepoints from time 0 to time 1
+  timepoints <- seq(time_start, time_end, by = step_size) 
+  
+  # Make an empty vector called X to step_sizeold the Euler numeric integration answers 
+  # from our 'for' loop
+  X <- rep(NA, length(timepoints)) 
+  
+  # Assign the first value (initial condition) of X 
+  X[1] <- X_initial
+  
+  # Loop over the timepoints and calculate X with the Euler method
+  for(t in 1:(length(timepoints) - 1)) {
+    X[t+1] <- X[t] + step_size*(-6*X[t])
+  }
+  
+  # Tell the function what to return
+  X_solved <- data.frame(timepoints, X, method = paste("Euler",step_size))
+  return(X_solved) 
+}
+```
+
+Once we've written R code to define the Euler solver function for our change equation $X' = -6X$, we can use that function to calculate the Euler solution under different conditions (different step sizes, different initial X values, different start/end times) without having to copy and paste over and over and over. For the example we did above, where we calculated the Euler solution under different values of step sizes:
+
+```{r, warning=FALSE}
+# Calculate a numerical solution X1, with h = 0.2 
+LoResSolution <- eulerOurFunction(step_size = 0.2, X_initial = 1, time_start = 0, time_end = 1)
+
+# Calculate a new numerical solution X2, with h = 0.01
+HiResSolution <- eulerOurFunction(step_size = 0.01, X_initial = 1, time_start = 0, time_end = 1)
+
+# Merge the Lo and Hi resolution answers to one dataframe for plotting
+solutions <- bind_rows(LoResSolution, HiResSolution)
+
+# Make plot that uses EulerOurFunction for two different initial conditions
+ggplot(data = solutions) +
+  geom_line(mapping = aes(x = timepoints, y = X, color = method))
+
+```
+
+And remember that we're working with a function where we *actually* know that $f(X) = e^{-6X}$, so we can also compare the *real* answer to these two solutions from numerical integration, to see how they performed:
+
+```{r, warning=FALSE}
+# Calculate the actual f(x) for these timepoints
+timepoints <- seq(0, 1, by = 0.01)
+X <- exp(-6*timepoints) #e^number is represents as exp() in R
+
+# Combine real solution with the numerical estimates
+X_real <- data.frame(timepoints, X, method = "Real solution")
+solutions <- bind_rows(LoResSolution, HiResSolution, X_real)
+
+# Plot all three 
+ggplot(solutions) + geom_line(mapping = aes(x = timepoints, y = X, color = method))
+```
+
+## 5. 4th Order Runge-Kutta Numerical Integration 
+
+The Euler method is a good first step toward numeric integration, but in practice, there are numerical methods that are more accurate and/or computationally efficient for finding solutions. One such algorithm that is widely applied for numerical integration is the 4th Order Runge-Kutta (RK4) method. The RK4 method works by taking four smaller steps through each timepoint, in contrast to the single small steps taken by the Euler method. By calculating the approximation for $f(X)$ at the start, end, and midpoint for each timestep, the RK4 method can usually arrive at a more accurate numerical approximation that the Euler method. 
+
+For the RK4 algorithm, we take the same first steps as we do for the Euler method, where we set up the vector of our timepoints, the vector that will hold our approximations of X, and the intial condition (X at the first time).
+
+```{r}
+# Same initial info at Euler: step_size, start/end points
+t_start <- 0 #Starting timepoint
+t_end <- 1   #Ending timepoint
+step_size <- 0.2 #Step size
+
+# Make a vector of timepoints from time 0 to time 1
+timepoints <- seq(t_start, t_end, by = step_size)  
+
+# Make an empty vector called X to hold the numeric integration answers 
+# from our 'for' loop
+X_RK4 <- rep(NA, length(timepoints)) 
+
+# Assign the first value (initial condition) of X to be 1
+X_RK4[1] <- 1 
+```
+
+After we set up the time vector and the empty X vector to hold our answers, we loop through the timepoints and calculate the approximation for X at each timepoint as:
+
+```{r}
+# Loop over the timepoints and solve for X using RK4 algorithm
+for(t in 1:(length(timepoints) - 1)) {
+  
+  k1 <- -6*X_RK4[t]       #Approx. for X' at start of timestep
+  x1 <- X_RK4[t] + k1*step_size/2 #Intermediate X at half a time step
+  
+  k2 <- -6*x1          #Approx. for X' at half a timestep
+  x2 <- X_RK4[t] + k2*step_size/2  #Intermediate X at half a time step (using better k2)
+  
+  k3 <- -6*x2       #Approx. derivative at the new intermediate value
+  x3 <- X_RK4[t] + k3*step_size #Endpoint value across whole timestep, h
+  
+  k4 <- -6*x3 #Approx. derivative at the endpoint value (end of timestep)
+  
+  # Approx. solution for next X value at n+1: weighted average of the four intermediate k solutions
+  # Double-weight to the k2 and k3 steps, which are better because they're between start/end points.
+  X_RK4[t+1] <- X_RK4[t] + (k1 + 2*k2 + 2*k3 + k4)*step_size / 6 
+}
+
+LoResRK4 <- data.frame(timepoints, X = X_RK4, method = "RK4 0.2")
+```
+
+Let's take a look at how the RK4 method compared to the Euler method for this numerical integration calculated at the same step size (0.2), and to the actual solution for $f(X)$:
+
+```{r, warning=FALSE}
+# Combine data frames for Euler & RK4 lo-res solutions and real f(x)
+Euler_RK4_compare <- bind_rows(LoResSolution, LoResRK4, X_real)
+
+# Plot Euler function calculation as:
+ggplot(data = Euler_RK4_compare) + geom_line(mapping = aes(x = timepoints, y = X, color = method))
+
+```
+
+The RK4 algorithm gets *much* closer to the actual solution for $f(X)$ than the Euler algorithm at the same step size. 
+
+The RK4 algorithm is the backbone of the solvers that we'll use next week with the `deSolve` package to solve systems of equations for HIV dynamics, so we've already done the hard work of understanding the nuts and bolts of how, exactly, it works!
+
+* * * 
+### Lab Report 2 Questions (due with the set from 2B)
+
+The first two Lab Report 2 questions will evaluate the Euler and RK4 algorithms at a smaller step size:
+
+- Write a function for the RK4 algorithm (called rk4OurFunction) that takes the same inputs as the eulerOurFunction function. 
+- Use your rk4OurFunction() to calculate the solution for $f(x)$ at a step size of 0.01 and compare it graphically to the solution for the Euler algorithm at the same step size. 
+
+* * * 
+
+
